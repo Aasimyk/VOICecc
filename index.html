@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Shangazi AI</title>
+    <style>
+        body {
+            font-family: Arial;
+            background: #4f65d2;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .controls {
+            margin: 20px;
+        }
+
+        button {
+            margin: 0 5px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        #chat-box {
+            width: 90%;
+            max-width: 600px;
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #f0f6f7;
+            padding: 10px;
+            background: #44739e;
+        }
+
+        .chat {
+            margin: 10px 0;
+        }
+
+        .bot {
+            color: #7fc3ff;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🎙️ Shangazi AI Voice Assistant</h1>
+    <h2> Start a call to chat with me !</h2>
+    <div class="controls">
+        <button onclick="startCall()">Start Call</button>
+        <button onclick="endCall()">End Call</button>
+    </div>
+
+    <div id="chat-box"></div>
+
+    <script>
+        let socket;
+        let mediaRecorder;
+        let audioChunks = [];
+
+        async function startCall() {
+            socket = new WebSocket("ws://127.0.0.1:8000/ws/audio");
+
+            socket.onmessage = async (event) => {
+                if (typeof event.data === "string") {
+                    document.getElementById("chat-box").innerHTML += event.data;
+                    document.getElementById("chat-box").scrollTop = document.getElementById("chat-box").scrollHeight;
+                } else {
+                    const blob = new Blob([event.data], { type: 'audio/mpeg' });
+                    const audioUrl = URL.createObjectURL(blob);
+                    const audio = new Audio(audioUrl);
+                    audio.play();
+                    audio.onended = () => {
+                        recordChunk(); // auto-restart recording after response
+                    };
+                }
+            };
+
+            socket.onopen = () => {
+                console.log("✅ WebSocket opened");
+                startRecording();
+            };
+
+            socket.onclose = () => {
+                console.log("❌ WebSocket closed");
+            };
+        }
+
+        function endCall() {
+            if (mediaRecorder && mediaRecorder.state !== "inactive") {
+                mediaRecorder.stop();
+            }
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.close();
+            }
+        }
+
+        async function startRecording() {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+
+            mediaRecorder.ondataavailable = (e) => {
+                audioChunks.push(e.data);
+            };
+
+            mediaRecorder.onstop = () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(audioBlob);
+                }
+                audioChunks = [];
+            };
+
+            recordChunk();
+        }
+
+        function recordChunk() {
+            if (!mediaRecorder || mediaRecorder.state !== "inactive") return;
+            mediaRecorder.start();
+
+            setTimeout(() => {
+                if (mediaRecorder.state !== "inactive") {
+                    mediaRecorder.stop();
+                }
+            }, 4000); // 4 second chunks
+        }
+    </script>
+</body>
+
+</html>
